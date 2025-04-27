@@ -46,6 +46,3 @@ Two types of models are available:
 
 ---
 
-## Contact
-For any questions or collaborations, please contact:  
-[Your Name] ・ [Your Email]
