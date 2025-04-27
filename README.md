@@ -1,47 +1,51 @@
-🐦 Seagull Population Estimation from Aerial Images and Movement Data
-Overview
+# 🐦 Seagull Population Estimation from Aerial Images and Movement Data
+
+## Overview
 This repository provides a full pipeline to detect seagulls in aerial imagery, integrate detections with movement data using state-space models (SSMs), and estimate the population size.
-It combines object detection with advanced Bayesian modeling to achieve accurate population estimates.
 
-Structure
-Seagull Detection
-Object detection is performed using YOLOv8.
+---
 
-Code: seagull.ipynb
+## Structure
 
-Movement Data Processing and Integration
-Preprocessing of movement data, integration with count data, and state-space modeling are implemented in:
+### - Seagull Detection
+Object detection is performed using **YOLOv8**.  
+- Code: [`seagull.ipynb`](./seagull.ipynb)
 
-Code: seagull_analysis.Rmd
+### - Movement Data Processing and Integration
+Preprocessing of movement data, integration with count data, and state-space modeling are implemented in:  
+- Code: [`seagull_analysis.Rmd`](./seagull_analysis.Rmd)
 
-State-Space Models (SSMs)
+### - State-Space Models (SSMs)
 Two types of models are available:
+- **SSMp**: State-space model with partial observability
+- **SSMn**: State-space model without observability adjustment
+- Stan model files for both approaches are included.
 
-SSMp: State-space model with partial observability
+---
 
-SSMn: State-space model without observability adjustment
+## Requirements
 
-Stan model files for both approaches are included.
+- Python (for YOLOv8 detection)
+- R + RMarkdown (for movement data processing and state-space modeling)
+- Stan (for fitting the Bayesian state-space models)
 
-Requirements
-Python (for YOLOv8 detection)
+---
 
-R + RMarkdown (for movement data processing and state-space modeling)
+## How to Use
 
-Stan (for fitting the Bayesian state-space models)
+1. **Run object detection**  
+2. **Process and analyze movement data**  
+3. **Interpret population estimates**
 
-How to Use
-Run object detection
-Execute seagull.ipynb to detect seagulls from aerial imagery using YOLOv8.
+---
 
-Process and analyze movement data
-Open and run seagull_analysis.Rmd to:
+## Notes
 
-Clean and prepare movement datasets
+- YOLOv8 model weights and configuration details should be set up before running `seagull.ipynb`.
+- Stan files for SSMp and SSMn should be located in the same directory as `seagull_analysis.Rmd`.
 
-Integrate count data
+---
 
-Fit state-space models (SSMp and SSMn) using Stan
-
-Interpret population estimates
-Model outputs provide population size estimates along with uncertainty quantification.
+## Contact
+For any questions or collaborations, please contact:  
+[Your Name] ・ [Your Email]
