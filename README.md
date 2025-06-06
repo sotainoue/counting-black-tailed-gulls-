@@ -9,7 +9,7 @@ This repository provides a full pipeline to detect seagulls in aerial imagery, i
 
 ### - Seagull Detection
 Object detection is performed using **YOLOv8**.  
-- Code: [`seagull.ipynb`](./seagull.ipynb)
+- Code: [`training.ipynb`](./training.ipynb)
 
 ### - Movement Data Processing and Integration
 Preprocessing of movement data, integration with count data, and state-space modeling are implemented in:  
