@@ -1,0 +1,592 @@
+
+#0 library
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(geosphere)
+library(stringr)
+library(ggmap)
+library(ggsci)
+library(jsonlite)
+library(base64enc)
+library(janitor)
+library(lubridate)
+library(fs)
+library(sp)
+library(rstan)
+library(bayesplot)
+library(lme4)
+library(cowplot)
+library(ggimage)
+library(osmdata)
+library(sf)
+library(ggpubr)
+library(zoo)
+library(viridis)
+library(FNN)
+
+base_size <- 12
+```
+
+#seagulls movement data
+```{r}
+data <- read.csv('~/code/data/seagulls_movement.csv',head=T)
+```
+#number of individuals
+```{r}
+tmp <- summarise(group_by(data, id,year,month,day),n())
+tmp2 <- summarise(group_by(tmp, year,month,day),n=n())
+
+fig_s4 <- ggplot(data=tmp2, aes(x=as.numeric(day),y=n)) + geom_point() + 
+            facet_grid(.~month,labeller = as_labeller(c('5'='May','6'='June'))) + theme_classic() +
+            xlab('day') + ylab('Number of individuals fitted with loggers') + 
+            theme(axis.text = element_text(size=9), axis.title = element_text(size=10),
+                  axis.line = element_line(colour="black",size=0),
+                  panel.background = element_rect(fill = "white", colour = "black", size = 1))
+print(fig_s4)
+```
+#movement of gulls
+
+```{r}
+#set the cooridnates of the colony
+kabu_lati <- 40.5386062
+kabu_long <- 141.5576031
+point_kabu <- c(kabu_long,kabu_lati)
+```
+
+```{r}
+#make a map
+bbox <- c(left = 141, bottom = 40.2, right = 142.6, top = 41.5)
+q <- opq(bbox = bbox) %>% 
+  add_osm_feature(key = "natural", value = "coastline")
+coastline_data <- osmdata_sf(q)
+
+#visualize the movemnts of gulls
+ggplot(data = coastline_data$osm_lines) +
+    geom_sf() + 
+    geom_path(data=data, aes(x=lon,y=lat, color=day),alpha=0.4) + 
+    facet_wrap(.~id) + 
+    xlim(141,142.6) + ylim(40.2,41.5) + theme_minimal()  + 
+    theme(legend.position = 'none',
+          axis.text.x = element_blank(),
+          axis.text.y = element_blank())
+
+
+fig_3a <- ggplot(data = coastline_data$osm_lines) +
+            geom_sf() + 
+            geom_path(data=subset(data,id=='9B22556'),size=0.2,alpha=0.9 ,aes(x=lon,y=lat, color=as.factor(day))) + 
+            geom_point(x=kabu_long,y=kabu_lati,color='black') +
+            scale_color_manual(values=inferno(31)) + #scale_color_brewer(palette='Paired') + 
+            xlim(141,142.6) + ylim(40.2,41.5) + theme_classic()  + 
+            labs(title='', subtitle = "", caption = "") + 
+            xlab('longitude') + ylab('latitude') + 
+            theme(legend.position = 'none',
+                  axis.text = element_text(size=7), 
+	              axis.title = element_text(size=9),
+                  axis.line = element_line(colour="black",size=0),
+                  panel.background = element_rect(fill = "white", colour = "black", size = 0.5),
+                  plot.margin = margin(t=1, r=1, b=1, l=1, unit="pt"))
+print(fig_3a)
+
+```
+
+#ratio  (whether gulls are in the colony)
+```{r}
+data3 <- subset(data, lat < 90 & lat > -90 )
+data3 <- subset(data3, month %in% c(5,6))
+
+data3$distance <- distGeo(point_kabu, data3[, c('lon', 'lat')])
+data3$time<- str_split(as.POSIXct(data3$time, format = "%H:%M:%OS", tx='GMT') + as.difftime(9, units = "hours"),' ',simplify = T)[,2]
+data3$time_category <- format(round(as.POSIXct(data3$time,format = "%H:%M:%OS", tz='Asia/Tokyo'),"hours"), "%H")
+data3$position <- ifelse(data3$distance > 179, 'trip',ifelse(data3$distance < 180,'stay','und'))
+```
+
+#flight record
+```{r}
+record <- read.csv('~/code/data/flight_record.csv',head=T)
+record <- subset(record, use==T)
+head(record)
+```
+
+
+#object detection
+```{r}
+count_sahi_data <- read.csv('~/code/data/count_sahi_data.csv')
+
+count_sahi_data$session_number <- sort(rep(seq(1,30,1),2))
+count_sahi_data$category_id2 <- ifelse(count_sahi_data$category_id=='1', 'A','B')
+
+fig_2g <- ggplot(data=count_sahi_data, aes(x=session_number, y=number)) +
+    geom_point(aes(color=category_id2),size=0.4) + theme_classic() +
+    theme_classic() + ylab('detected number of individuals') + xlab('session ID') +
+    scale_color_aaas(labels=c('A'='Ground','B'='Fly'),name='class') +
+    facet_wrap(.~category_id, scale='free',nrow=2) +
+                theme(strip.background  = element_blank(),
+                      strip.text = element_blank(),
+                legend.position = 'none',
+                panel.background = element_rect(fill = "white", colour = "black", size = 0.4),
+                axis.line = element_line(colour="black",size=0),
+                text = element_text(size = base_size),
+                axis.title = element_text(size = base_size),
+                axis.text = element_text(size = base_size-2))
+print(fig_2g)
+```
+
+```{r}
+count_sahi_data <- dplyr::select(count_sahi_data, -category_id2)
+count_sahi_data2 <- pivot_wider(count_sahi_data, names_from=category_id,values_from = number)
+colnames(count_sahi_data2)[which(colnames(count_sahi_data2)==0)] <- 'Fly'
+colnames(count_sahi_data2)[which(colnames(count_sahi_data2)==1)] <- 'G'
+count_sahi_data2$n_total <- count_sahi_data2$Fly + count_sahi_data2$G
+```
+
+```{r}
+base_size<-11
+f1 <- ggplot(data=count_sahi_data2, aes(x=as.factor(Month), y=n_total,group=Month)) + 
+            geom_boxplot(aes(x=as.factor(Month), y=n_total,group=Month),width=0.5) + 
+            geom_point(aes(x=as.factor(Month), y=n_total,group=Month),alpha=0.3) + 
+            labs(color = 'Month') + xlab('') + ylab('number of detected individuals') +
+            theme_classic()  + ylim(13000,19000) + 
+                theme(strip.text = element_blank(),
+                      legend.position = 'none',
+                        panel.background = element_rect(fill = "white", colour = "black", size = 1.2),
+                        axis.line = element_line(colour="black",size=0),
+                        text = element_text(size = base_size), 
+                        axis.title = element_text(size = base_size), 
+                        axis.text = element_text(size = base_size-2), 
+                        legend.title = element_text(size = base_size), 
+                        legend.text = element_text(size = base_size-1),
+                        strip.background = element_rect(fill = "white"))
+
+f2 <- ggplot(data=count_sahi_data2, aes(x=as.factor(Month), y=G,group=Month, color=as.factor(Month))) + 
+            geom_boxplot(aes(x=as.factor(Month), y=G,group=Month),width=0.5, color='#3B4992FF') + 
+            geom_point(aes(x=as.factor(Month), y=G,group=Month),alpha=0.3, color='#3B4992FF') + 
+            labs(color = 'Month') + xlab('Month') +  ylab('') + ylim(13000,19000) + 
+            theme_classic() +  
+                theme(strip.text = element_blank(),
+                legend.position = 'none',
+                panel.background = element_rect(fill = "white", colour = "black", size = 1.2),
+                axis.line = element_line(colour="black",size=0),
+                text = element_text(size = base_size), 
+                axis.title = element_text(size = base_size), 
+                axis.text = element_text(size = base_size-2), 
+                legend.title = element_text(size = base_size), 
+                legend.text = element_text(size = base_size-1),
+                strip.background = element_rect(fill = "white"))
+
+f3 <- ggplot(data=count_sahi_data2, aes(x=as.factor(Month), y=Fly,group=Month, color=as.factor(Month))) + 
+            geom_boxplot(aes(x=as.factor(Month), y=Fly,group=Month),width=0.5, color='#EE0000FF') + 
+            geom_point(aes(x=as.factor(Month), y=Fly,group=Month),alpha=0.3,color='#EE0000FF') + 
+            labs(color = 'Month') + xlab('') + ylab('') + 
+            theme_classic() + 
+                theme(strip.text = element_blank(),
+                legend.position = 'none',
+                panel.background = element_rect(fill = "white", colour = "black", size = 1.2),
+                axis.line = element_line(colour="black",size=0),
+                text = element_text(size = base_size), 
+                axis.title = element_text(size = base_size), 
+                axis.text = element_text(size = base_size-2), 
+                legend.title = element_text(size = base_size), 
+                legend.text = element_text(size = base_size-1),
+                strip.background = element_rect(fill = "white"))
+
+fig_2h <- plot_grid(f1,f2,f3, nrow=1, align='hv')
+print(fig_2h)
+```
+
+
+# compare prediction using validation data
+```{r}
+test_data <- read.csv('~/code/data/pre_ano_data.csv',head=T)
+```
+
+
+```{r}
+fig_2d <- ggplot(data=test_data,aes(x=n_ind,y=n_ind_pre)) + geom_point(alpha=0.5,size=0.5) + 
+                        geom_abline(slope=1.07, intercept = 0.247, col = '#008280FF',size=1, linetype='dashed') + 
+                        geom_abline(slope=1, intercept = 0, col = '#BB0021FF',size=1, linetype='dashed') + 
+                        theme_classic() + ylab('predicted') + xlab('actual') + 
+                        coord_equal() +
+                         theme_classic() + 
+                                theme(strip.text = element_blank(),
+                                legend.position = 'none',
+                                panel.background = element_rect(fill = "white", colour = "black", size = 0.75),
+                                axis.line = element_line(colour="black",size=0),
+                                text = element_text(size = base_size), 
+                                axis.title = element_text(size = 10), 
+                                axis.text = element_text(size = 7),
+                                plot.margin = margin(t=2, r=2, b=2, l=2, unit="pt"))
+print(fig_2d)
+```
+
+#merge movement data and count data
+```{r}
+#logger data
+data3 <- mutate(data3,datetime = ymd_hms(paste(date, time)))
+data3 <- mutate(data3,time_group = floor_date(datetime, "10 minutes")) 
+
+
+tmp <- subset(data3,year==2023)
+tmp2 <- summarise(group_by(tmp,id,time_group),
+                     position=unique(position))
+
+time_group <- seq(from = as.POSIXct('2023-05-02 00:00:00'), 
+                   to = max(tmp$time_group),
+                   by = "10 min")
+
+tmp3 <- left_join(as.data.frame(time_group),tmp2, by='time_group')
+
+
+b_data <- summarise(group_by(tmp3,time_group),
+                    stay=sum(position=='stay'),
+                    trip=sum(position=='trip'),
+                    total=n())
+
+b_data$ratio <- b_data$stay/b_data$total
+
+ggplot(b_data, aes(x=time_group,y=total)) + geom_point(alpha=0.4,size=0.4) 
+
+#drone data
+count_sahi_data2 <- pivot_wider(count_sahi_data, names_from=category_id,values_from = number)
+colnames(count_sahi_data2)[which(colnames(count_sahi_data2)==0)] <- 'Fly'
+colnames(count_sahi_data2)[which(colnames(count_sahi_data2)==1)] <- 'G'
+count_sahi_data2$n_total <- count_sahi_data2$Fly + count_sahi_data2$G
+
+count_sahi_data2 <- mutate(count_sahi_data2,datetime = ymd_hms(paste(date, time)))
+count_sahi_data2 <- mutate(count_sahi_data2,time_group = floor_date(datetime, "10 minutes")) 
+
+count_sahi_data3 <- dplyr::select(count_sahi_data2,time_group,Fly,G,n_total)
+
+
+#merge
+cb_data <- left_join(b_data,count_sahi_data3,by='time_group')
+exist_data <- which(!is.na(cb_data$ratio))
+
+t_session <- which(is.na(cb_data$Fly)==F)
+
+cb_data2 <- subset(cb_data, is.na(Fly) == F)
+
+#add rollemean for visualize
+
+cb_data$MA30 <- rollmean(cb_data$ratio, k = 6, fill = NA)
+cb_data$MA1Day <- rollmean(cb_data$ratio, k = 288, fill = NA)
+
+#visualize
+rplot <-ggplot(data=cb_data,aes(x=time_group,y=MA1Day)) + 
+    geom_point(data=cb_data,aes(x=time_group,y=ratio),color='darkgrey',size=0.6,alpha=0.2) + 
+    geom_line(size=1,color='#00008B') + theme_classic() +
+    geom_hline(yintercept=0.5, linetype='dashed',size=0.4,color='#DC143C') + 
+    xlab('day') + ylab('ratio in the colony') + 
+    theme(panel.background = element_rect(fill = 'transparent', colour = 'black'),
+          axis.text = element_text(size=6), 
+	      axis.title = element_text(size=8),
+          axis.line = element_line(colour="black",size=0))
+
+print(rplot)
+
+#merge
+stan_data <- list(T = nrow(cb_data), 
+                  t = exist_data,
+                  n_obs = length(exist_data),
+                  y = cb_data$stay[exist_data], 
+                  total_logger = cb_data$total[exist_data],
+                  t_session = t_session,
+                  n_session = nrow(cb_data2),
+                  drone=cb_data2$n_total)
+
+any(cb_data$stay[exist_data] > cb_data$total[exist_data])
+```
+
+#state-space model SSMp
+```{r}
+options(mc.cores = parallel::detectCores())
+```
+
+```{stan output.var='ssmp'}
+data {
+    //logger part
+    int<lower=0> T; //number of step
+    
+    int<lower=0> n_obs; //number of step where logger data exist
+    int<lower=0> t[n_obs]; // time step at logger data exist
+    int<lower=0> y[n_obs]; // individuals in kabushima observed by logger
+    int<lower=0> total_logger[n_obs]; // total individuals with logger in kabushima
+}
+
+parameters {
+    real<lower=0> s_z;
+    vector[T] theta;
+}
+
+transformed parameters{
+    vector<lower=0, upper=1>[T] p;
+    for (t_i in 1:T)
+        p[t_i] = inv_logit(theta[t_i]); // logit link fucntion
+}
+
+model {
+    theta[1] ~ uniform(0, 1);
+    theta[2] ~ uniform(0, 1);
+    
+    //state change along time
+    for(i in 3:T){
+        theta[i] ~ normal(2*theta[i-1] - theta[i-2], s_z);
+    }
+    
+    for (i in 1:n_obs){
+        y[i] ~ binomial(total_logger[i], p[t[i]]); 
+    }
+    
+}
+```
+
+```{r}
+ssmp_fit <- sampling(ssmp, 
+                     data=stan_data,
+                     iter=20000,
+                     thin=4)
+```
+
+```{r}
+posterior_samples <- rstan::extract(ssmp_fit)$p
+dim(posterior_samples)
+hist(posterior_samples)
+
+p_median <- apply(posterior_samples, 2, median)
+p_ci_lower <- apply(posterior_samples, 2, quantile, probs = 0.025)
+p_ci_upper <- apply(posterior_samples, 2, quantile, probs = 0.975)
+```
+
+```{r}
+cb_data$ma1day <- rollmean(cb_data$ratio, k = 288, fill = NA)
+df <- data.frame(time_group = cb_data$time_group,
+                 ratio_ma1day  = cb_data$ma1day,
+                 p_median,
+                 p_ci_lower,
+                 p_ci_upper,
+                 r=cb_data$ratio,
+                 N=cb_data$total,
+                 y=cb_data$stay)
+
+
+fig_3b <-ggplot(data=df,aes(x=time_group,y=ratio_ma1day)) + 
+       geom_point(data=cb_data,aes(x=time_group,y=ratio),color='darkgrey',size=0.4,alpha=0.5)+ 
+    geom_line(data=df,aes(x=time_group,y=p_median),color='#D81B60',size=0.3,alpha=1) +
+    geom_line(size=0.6,color='#1E88E5') + theme_classic() +
+    geom_hline(yintercept=0.5, linetype='dashed',size=0.4,color='#DC143C') + 
+    xlab('date') + ylab('probability') + 
+    theme(panel.background = element_rect(fill = 'transparent', colour = 'black'),
+          axis.text = element_text(size=6), 
+	      axis.title = element_text(size=8),
+          axis.line = element_line(colour="black",size=0))
+print(fig_3b)
+```
+
+```{r}
+t_session <- which(is.na(cb_data$Fly)==F)
+
+
+df_drone <- left_join(df[t_session,], cb_data[t_session,],by='time_group')
+
+fig_5a <- ggplot(data=df_drone, aes(x=p_median,y=n_total)) + 
+            geom_point(size=0.8) + stat_smooth(method='lm',se=F) + 
+            ylim(13000,19000) + ylab(expression('a'['obs']*' in each UAV session')) + xlab('predicted p') +
+            theme_classic() + 
+            theme(axis.text = element_text(size=7), 
+                  axis.title = element_text(size=9),
+                  axis.line = element_line(colour="black",size=0),
+                  panel.background = element_rect(fill = "white", colour = "black", size = 1))
+
+print(fig_5a)
+```
+```{r}
+cor.test(df_drone$p_median,df_drone$n_total)
+```
+
+
+#state-space model SSMN
+```{r}
+options(mc.cores = parallel::detectCores())
+```
+
+```{stan output.var='ssmn'}
+data {
+    //logger part
+    int<lower=0> T; //number of step
+    
+    int<lower=0> n_obs; //number of step where logger data exist
+    int<lower=0> t[n_obs]; // time step at logger data exist
+    int<lower=0> y[n_obs]; // individuals in kabushima observed by logger
+    int<lower=0> total_logger[n_obs]; // total individuals with logger in kabushima
+    
+    //Drone part
+    int<lower=0> n_session; //number of session
+    int<lower=0> t_session[n_session]; //time at drone session
+    real<lower=0> drone[n_session];
+}
+
+parameters {
+    real<lower=0> s_z;
+    real<lower=0> s_v;
+    real<lower=17000> N;
+    vector[T] theta;
+}
+
+transformed parameters{
+    vector<lower=0, upper=1>[T] p;
+    for (t_i in 1:T)
+        p[t_i] = inv_logit(theta[t_i]); // logit link function
+}
+
+model {
+    theta[1] ~ uniform(0, 1);
+    theta[2] ~ uniform(0, 1);
+    
+    //state change along time
+    for(i in 3:T){
+        theta[i] ~ normal(2*theta[i-1] - theta[i-2], s_z);
+    }
+    
+    
+    for (i in 1:n_obs){
+        y[i] ~ binomial(total_logger[i], p[t[i]]); 
+    }
+    
+    for(i in 1:n_session){
+        drone[i] ~ normal(0.92*N*p[t_session[i]],s_v);
+    }
+}
+```
+
+```{r}
+ssmn_fit <- sampling(ssmn, 
+                     data=stan_data,
+                     iter=20000,
+                     thin=4)
+```
+
+```{r}
+posterior_samples <- rstan::extract(ssmn_fit)$p
+
+p_median <- apply(posterior_samples, 2, median)
+p_ci_lower <- apply(posterior_samples, 2, quantile, probs = 0.025)
+p_ci_upper <- apply(posterior_samples, 2, quantile, probs = 0.975)
+```
+
+```{r}
+#extract median, ci, and density
+df_N <- data.frame(N_es=rstan::extract(ssmn_fit)$N)
+
+dens <- density(df_N$N_es)
+
+ci_lower <- quantile(df_N$N_es, probs = 0.025)
+ci_upper <- quantile(df_N$N_es, probs = 0.975)
+
+
+dens_df <- data.frame(x = dens$x, y = dens$y)
+
+
+ci_df <- subset(dens_df, x >= ci_lower & x <= ci_upper)
+
+
+ci_lower50 <- quantile(df_N$N_es, probs = 0.25)
+ci_upper50 <- quantile(df_N$N_es, probs = 0.75)
+
+
+dens_df <- data.frame(x = dens$x, y = dens$y)
+
+ci_df <- subset(dens_df, x >= ci_lower & x <= ci_upper)
+ci_df50 <- subset(dens_df, x >= ci_lower50 & x <= ci_upper50)
+
+
+median_value <- median(df_N$N_es)
+```
+
+
+```{r}
+fig_5b <- ggplot(data=dens_df, aes(x=p_median,y=n_total)) + 
+            geom_line(data = dens_df, aes(x = x, y = y), color = "darkgray") +
+            geom_area(data = ci_df, aes(x = x, y = y), fill = "blue", alpha = 0.1) +
+            geom_area(data = ci_df50, aes(x = x, y = y), fill = "blue", alpha = 0.6) +   
+            geom_vline(xintercept = median_value, color = "black",alpha=0.8, linetype = "dashed") + 
+            xlab("Estimated N") + ylab('density') + 
+            theme_classic() + 
+            theme(axis.text = element_text(size=7), 
+                  axis.title = element_text(size=9),
+                  axis.line = element_line(colour="black",size=0),
+                  panel.background = element_rect(fill = "white", colour = "black", size = 1))
+print(fig_5b)
+```
+
+
+
+#sub-sampling analysis
+##visualize sub-sample simulations
+
+```{r}
+load('~/code/data/full_dens_df.RData')
+load('~/code/data/full_ci_df.RData')
+
+full_dens_df$category <- ifelse(full_dens_df$dataset=='res','observed','simulation')
+
+full_dens_df$sample_size_ratio <- 
+            ifelse(full_dens_df$sample_size<17,'50%',
+                   ifelse(full_dens_df$sample_size<25,'75%',
+                          ifelse(full_dens_df$sample_size=='original','100%','90%')))
+
+
+lo_ci <- min(subset(full_ci_df, dataset == 'res')$x)
+up_ci <- max(subset(full_ci_df, dataset == 'res')$x)
+
+
+tmp_r <- expand.grid(unique(full_dens_df$dataset),unique(full_dens_df$sample_size_ratio))
+colnames(tmp_r) <- c('dataset','sample_size_ratio')
+tmp_r <- subset(tmp_r, dataset != 'res')
+tmp_r <- subset(tmp_r, sample_size_ratio != '100%')
+tmp_r$lo_ci <- lo_ci
+tmp_r$up_ci <- up_ci
+
+figure4c <- 
+    ggplot() +
+        geom_rect(data=tmp_r, aes(xmin=lo_ci, xmax=up_ci), ymin=-0.00001, ymax=0.00071, fill='red',alpha=0.3) + 
+        geom_line(data = subset(full_dens_df,category=='simulation'), aes(x = x, y = y,color=as.factor(id),group=id),alpha=0.8) +
+        facet_grid(sample_size_ratio~dataset, labeller = as_labeller(c('drone'='UAS reduction', 'logger'='logger reduction','90%'='90%','75%'='75%','50%'='50%'))) + 
+    　　geom_vline(xintercept = median(subset(full_dens_df,category=='observed')$x),linetype=2, color='grey30') + 
+        scale_color_manual(values=inferno(10)) + 
+        theme_classic()+xlab("Estimated N") + ylab('density') +
+            theme(axis.line = element_line(colour="black",size=0),
+                  strip.background  = element_blank(),
+                  legend.position='none',
+                  legend.box.background = element_rect(fill="white",colour = "black",size=0.4),
+                  panel.background = element_rect(fill = "white", colour = "black", size = 1))
+print(figure4c)
+```
+
+##wasserstein distance
+```{r}
+load('~/code/data/dist_data.RData')
+dist_data <- data.frame(distance=dists,sample_size=sample_sizes,category=categories)
+
+dist_data$sample_size_ratio <- 
+            ifelse(dist_data$sample_size<17,'50%',
+                   ifelse(dist_data$sample_size<25,'75%',
+                          ifelse(dist_data$sample_size=='original','100%','90%')))
+
+figure4d <- ggplot(data=dist_data, aes(x=sample_size_ratio,y=distance,color=category)) + 
+    geom_point(aes(color=category),alpha=0.4, position=position_dodge(width=0.5)) +
+    stat_summary(aes(x = sample_size_ratio,color=category), fun.data = mean_sd, geom = "pointrange",  position = position_dodge(width=0.5)) +
+        scale_color_aaas(labels=c(drone='UAS', logger='logger')) + 
+        geom_hline(yintercept=0, color='grey50',linetype='dashed') + 
+        theme_classic()+xlab("") + ylab('wasserstein distance') +
+        theme(legend.position=c(1,0.99), legend.justification = c(1.05,1),
+              legend.title = element_blank(),
+              legend.key.size = unit(0.6, "cm"),   
+    　　　　　legend.text = element_text(size = 6), 
+              axis.line = element_line(colour="black",size=0),
+    　　　　　axis.text.y = element_text(size=6),
+              panel.background = element_rect(fill = "white", colour = "black", size = 1))
+
+print(figure4d)
+```
+
+
